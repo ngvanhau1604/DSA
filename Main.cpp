@@ -7,23 +7,19 @@
 #include <fstream>
 #include <iomanip>
 #include <cstring>
-#include <time.h>
 #include <sstream>
-#include <iomanip>
 #include <algorithm>
+
 using namespace std;
 
-// Custom implementation of strptime
-tm *strptime(const char *s, const char *f, tm *tm)
+struct tgian
 {
-    istringstream input(s);
-    input >> get_time(tm, f);
-    if (input.fail())
-    {
-        return nullptr;
-    }
-    return tm;
-}
+    int phut;
+    int gio;
+    int ngay;
+    int thang;
+    int nam;
+};
 
 // Cấu trúc dữ liệu cho Máy bay
 struct MayBay
@@ -56,11 +52,11 @@ struct nodeVe
 struct ChuyenBay
 {
     char maCB[15]; // primary key
-    tm ngayGioKhoiHanh;
+    tgian ngayGioKhoiHanh;
     string sanBayDen;
     int trangThai; // 0: huy chuyen, 1: con ve, 2: het ve, 3: hoan tat
     char soHieuMB[15];
-    nodeVe dsVe; // tuy chon, tam thoi dung danh sach lien ket don
+    nodeVe *dsVe; // danh sách liên kết đơn
 };
 
 struct nodeChuyenBay
@@ -69,7 +65,7 @@ struct nodeChuyenBay
     ChuyenBay data;
 };
 
-nodeChuyenBay *dsChuyenBay = NULL; // dsChyenBay la head/first cua danh sach chuyen bay
+nodeChuyenBay *dsChuyenBay = NULL; // dsChuyenBay là head/first của danh sách chuyến bay
 
 // Cấu trúc dữ liệu cho Hành khách
 struct HanhKhach
@@ -81,7 +77,125 @@ struct HanhKhach
 };
 
 // Cây nhị phân tìm kiếm cho hành khách
-map<string, HanhKhach> danhSachHanhKhach;
+struct AVLNode
+{
+    HanhKhach data;
+    AVLNode *left = nullptr;
+    AVLNode *right = nullptr;
+    int height = 1;
+};
+
+AVLNode *rootHanhKhach = nullptr;
+
+// Utility function to get the height of a node
+int getHeight(AVLNode *node)
+{
+    return node ? node->height : 0;
+}
+
+// Utility function to get the balance factor of a node
+int getBalanceFactor(AVLNode *node)
+{
+    return node ? getHeight(node->left) - getHeight(node->right) : 0;
+}
+
+// Right rotate utility
+AVLNode *rightRotate(AVLNode *y)
+{
+    AVLNode *x = y->left;
+    AVLNode *T2 = x->right;
+
+    x->right = y;
+    y->left = T2;
+
+    y->height = max(getHeight(y->left), getHeight(y->right)) + 1;
+    x->height = max(getHeight(x->left), getHeight(x->right)) + 1;
+
+    return x;
+}
+
+// Left rotate utility
+AVLNode *leftRotate(AVLNode *x)
+{
+    AVLNode *y = x->right;
+    AVLNode *T2 = y->left;
+
+    y->left = x;
+    x->right = T2;
+
+    x->height = max(getHeight(x->left), getHeight(x->right)) + 1;
+    y->height = max(getHeight(y->left), getHeight(y->right)) + 1;
+
+    return y;
+}
+
+// Insert a new HanhKhach into the AVL tree
+AVLNode *insertHanhKhach(AVLNode *node, HanhKhach hk)
+{
+    if (!node)
+    {
+        AVLNode *newNode = new AVLNode;
+        newNode->data = hk;
+        return newNode;
+    }
+
+    if (strcmp(hk.soCMND, node->data.soCMND) < 0)
+        node->left = insertHanhKhach(node->left, hk);
+    else if (strcmp(hk.soCMND, node->data.soCMND) > 0)
+        node->right = insertHanhKhach(node->right, hk);
+    else
+        return node; // Duplicate keys are not allowed
+
+    node->height = 1 + max(getHeight(node->left), getHeight(node->right));
+
+    int balance = getBalanceFactor(node);
+
+    if (balance > 1 && strcmp(hk.soCMND, node->left->data.soCMND) < 0)
+        return rightRotate(node);
+
+    if (balance < -1 && strcmp(hk.soCMND, node->right->data.soCMND) > 0)
+        return leftRotate(node);
+
+    if (balance > 1 && strcmp(hk.soCMND, node->left->data.soCMND) > 0)
+    {
+        node->left = leftRotate(node->left);
+        return rightRotate(node);
+    }
+
+    if (balance < -1 && strcmp(hk.soCMND, node->right->data.soCMND) < 0)
+    {
+        node->right = rightRotate(node->right);
+        return leftRotate(node);
+    }
+
+    return node;
+}
+
+// Search for a HanhKhach by soCMND
+HanhKhach *searchHanhKhach(AVLNode *node, const char *soCMND)
+{
+    if (!node)
+        return nullptr;
+
+    if (strcmp(soCMND, node->data.soCMND) == 0)
+        return &node->data;
+
+    if (strcmp(soCMND, node->data.soCMND) < 0)
+        return searchHanhKhach(node->left, soCMND);
+
+    return searchHanhKhach(node->right, soCMND);
+}
+
+// Wrapper functions for adding and searching HanhKhach
+void themHanhKhach(HanhKhach hk)
+{
+    rootHanhKhach = insertHanhKhach(rootHanhKhach, hk);
+}
+
+HanhKhach *timHanhKhach(const char *soCMND)
+{
+    return searchHanhKhach(rootHanhKhach, soCMND);
+}
 
 // Hàm thêm máy bay
 void themMayBay(MayBay *mb)
@@ -126,25 +240,33 @@ void themChuyenBay(ChuyenBay cb)
 {
     nodeChuyenBay *newNode = new nodeChuyenBay;
     newNode->data = cb;
+    nodeChuyenBay *current = dsChuyenBay;
+    while (current != NULL)
+    {
+        if (strcmp(current->data.maCB, cb.maCB) == 0)
+        {
+            cout << "Da ton tai chuyen bay voi ma CB nay!" << endl;
+            return;
+        }
+        current = current->next;
+    }
     newNode->next = dsChuyenBay;
-    dsChuyenBay = newNode;
 }
 
 // Hàm hiệu chỉnh ngày giờ khởi hành của chuyến bay
-void hieuChinhChuyenBay(const char *maCB, const char *ngayGio)
+void hieuChinhChuyenBay(const char *maCB, const tgian &ngayGio)
 {
     nodeChuyenBay *current = dsChuyenBay;
     while (current != NULL)
     {
         if (strcmp(current->data.maCB, maCB) == 0)
         {
-            strptime(ngayGio, "%a %b %d %H:%M:%S %Y", &current->data.ngayGioKhoiHanh);
+            current->data.ngayGioKhoiHanh = ngayGio;
             break;
         }
         current = current->next;
     }
 }
-
 // Hàm hủy chuyến bay
 void huyChuyenBay(const char *maCB)
 {
@@ -160,12 +282,6 @@ void huyChuyenBay(const char *maCB)
     }
 }
 
-// Hàm thêm hành khách
-void themHanhKhach(HanhKhach hk)
-{
-    danhSachHanhKhach[hk.soCMND] = hk;
-}
-
 // Hàm đặt vé
 void datVe(string maCB, Ve ve)
 {
@@ -176,8 +292,8 @@ void datVe(string maCB, Ve ve)
         {
             nodeVe *newVe = new nodeVe;
             newVe->data = ve;
-            newVe->next = current->data.dsVe.next;
-            current->data.dsVe.next = newVe;
+            newVe->next = current->data.dsVe;
+            current->data.dsVe = newVe;
             break;
         }
         current = current->next;
@@ -192,8 +308,8 @@ void huyVe(string maCB, int soVe)
     {
         if (strcmp(current->data.maCB, maCB.c_str()) == 0)
         {
-            nodeVe *prev = &current->data.dsVe;
-            nodeVe *currVe = current->data.dsVe.next;
+            nodeVe *prev = current->data.dsVe;
+            nodeVe *currVe = current->data.dsVe->next;
             while (currVe != NULL)
             {
                 if (currVe->data.soVe == soVe)
@@ -221,16 +337,17 @@ void inDanhSachHanhKhach(string maCB)
         {
             cout << "=============================================" << endl;
             cout << "DANH SACH HANH KHACH THUOC CHUYEN BAY " << maCB << endl;
-            cout << "Ngay gio khoi hanh: " << asctime(&current->data.ngayGioKhoiHanh);
+            cout << "Ngay gio khoi hanh: " << current->data.ngayGioKhoiHanh.gio << ":" << current->data.ngayGioKhoiHanh.phut << " " << current->data.ngayGioKhoiHanh.ngay << "/" << current->data.ngayGioKhoiHanh.thang + 1 << "/" << current->data.ngayGioKhoiHanh.nam << endl;
+            cout << "So hieu may bay: " << current->data.soHieuMB << endl;
             cout << "Noi den: " << current->data.sanBayDen << endl;
             cout << "---------------------------------------------" << endl;
             cout << setw(5) << "STT" << setw(10) << "SO VE" << setw(15) << "SO CMND" << setw(20) << "HO TEN" << setw(10) << "PHAI" << endl;
             cout << "---------------------------------------------" << endl;
             int stt = 1;
-            nodeVe *currVe = current->data.dsVe.next;
+            nodeVe *currVe = current->data.dsVe;
             while (currVe != NULL)
             {
-                HanhKhach hk = danhSachHanhKhach[currVe->data.soCMND];
+                HanhKhach hk = *timHanhKhach(currVe->data.soCMND);
                 cout << setw(5) << stt++ << setw(10) << currVe->data.soVe << setw(15) << currVe->data.soCMND << setw(20) << hk.ho + " " + hk.ten << setw(10) << hk.phai << endl;
                 currVe = currVe->next;
             }
@@ -241,65 +358,20 @@ void inDanhSachHanhKhach(string maCB)
     }
 }
 
-// Hàm in danh sách các chuyến bay khởi hành trong ngày đến nơi XXXX mà còn vé
-void inDanhSachChuyenBayTrongNgay(string ngay, string noiDen)
+// Hàm in danh sách hành khách trong cây nhị phân tìm kiếm ra file
+void inDanhSachHanhKhachAVLtoFile(AVLNode *node)
 {
-    nodeChuyenBay *current = dsChuyenBay;
-    while (current != NULL)
-    {
-        char buffer[80];
-        strftime(buffer, 80, "%d/%m/%Y", &current->data.ngayGioKhoiHanh);
-        if (strcmp(buffer, ngay.c_str()) == 0 && current->data.sanBayDen == noiDen && current->data.trangThai == 1)
-        {
-            cout << "Ma chuyen bay: " << current->data.maCB << endl;
-            cout << "Gio khoi hanh: " << asctime(&current->data.ngayGioKhoiHanh);
-            cout << "So ve con trong: " << current->data.dsVe.next << endl;
-        }
-        current = current->next;
-    }
-}
+    if (node == NULL)
+        return;
 
-// Hàm in danh sách các vé còn trống của 1 chuyến bay có mã chuyến bay là X
-void inDanhSachVeTrong(string maCB)
-{
-    nodeChuyenBay *current = dsChuyenBay;
-    while (current != NULL)
+    inDanhSachHanhKhachAVLtoFile(node->left);
+    ofstream file("data.txt", ios::app);
+    if (file.is_open())
     {
-        if (strcmp(current->data.maCB, maCB.c_str()) == 0)
-        {
-            cout << "Danh sach ve con trong cua chuyen bay " << maCB << ":" << endl;
-            nodeVe *currVe = current->data.dsVe.next;
-            while (currVe != NULL)
-            {
-                cout << "So ve: " << currVe->data.soVe << endl;
-                currVe = currVe->next;
-            }
-            break;
-        }
-        current = current->next;
+        file << node->data.soCMND << " " << node->data.ho << " " << node->data.ten << " " << node->data.phai << endl;
+        file.close();
     }
-}
-
-// Hàm thống kê số lượt thực hiện chuyến bay của từng máy bay
-void thongKeSoLuotThucHienChuyenBay()
-{
-    map<string, int> thongKe;
-    nodeChuyenBay *current = dsChuyenBay;
-    while (current != NULL)
-    {
-        thongKe[current->data.soHieuMB]++;
-        current = current->next;
-    }
-
-    vector<pair<string, int>> thongKeVec(thongKe.begin(), thongKe.end());
-    sort(thongKeVec.begin(), thongKeVec.end(), [](const pair<string, int> &a, const pair<string, int> &b)
-         { return b.second < a.second; });
-
-    cout << "So luot thuc hien chuyen bay cua tung may bay:" << endl;
-    for (const auto &entry : thongKeVec)
-    {
-        cout << "So hieu may bay: " << entry.first << " - So luot thuc hien: " << entry.second << endl;
-    }
+    inDanhSachHanhKhachAVLtoFile(node->right);
 }
 
 // Hàm lưu dữ liệu vào tệp
@@ -327,16 +399,21 @@ void luuDuLieu()
         current = dsChuyenBay;
         while (current != NULL)
         {
-            file << current->data.maCB << " " << asctime(&current->data.ngayGioKhoiHanh) << " " << current->data.sanBayDen << " " << current->data.trangThai << " " << current->data.soHieuMB << endl;
-            nodeVe *currVe = current->data.dsVe.next;
+            file << current->data.maCB << " "
+                 << current->data.ngayGioKhoiHanh.ngay << " " << current->data.ngayGioKhoiHanh.thang << " " << current->data.ngayGioKhoiHanh.nam << " "
+                 << current->data.ngayGioKhoiHanh.gio << " " << current->data.ngayGioKhoiHanh.phut << " "
+                 << current->data.sanBayDen << " "
+                 << current->data.trangThai << " "
+                 << current->data.soHieuMB << endl;
             int soLuongVe = 0;
+            nodeVe *currVe = current->data.dsVe;
             while (currVe != NULL)
             {
                 soLuongVe++;
                 currVe = currVe->next;
             }
             file << soLuongVe << endl;
-            currVe = current->data.dsVe.next;
+            currVe = current->data.dsVe;
             while (currVe != NULL)
             {
                 file << currVe->data.soVe << " " << currVe->data.soCMND << endl;
@@ -346,20 +423,41 @@ void luuDuLieu()
         }
 
         // Lưu danh sách hành khách
-        file << danhSachHanhKhach.size() << endl;
-        for (const auto &hk : danhSachHanhKhach)
-        {
-            file << hk.second.soCMND << " " << hk.second.ho << " " << hk.second.ten << " " << hk.second.phai << endl;
-        }
+        file << rootHanhKhach->height << endl;
+        inDanhSachHanhKhachAVLtoFile(rootHanhKhach);
 
+        file << endl;
         file.close();
+    }
+}
+void kiemTra()
+{
+    cout << "Danh sach may bay:" << endl;
+    for (int i = 0; i < dsMayBay.soluongMayBay; ++i)
+    {
+        cout << "So hieu: " << dsMayBay.nodes[i]->soHieuMB
+             << ", Loai: " << dsMayBay.nodes[i]->loaiMB
+             << ", So cho: " << dsMayBay.nodes[i]->soCho << endl;
+    }
+
+    nodeChuyenBay *current = dsChuyenBay;
+    cout << "Danh sach chuyen bay:" << endl;
+    while (current != NULL)
+    {
+        cout << "Ma CB: " << current->data.maCB
+             << ", Ngay gio: " << current->data.ngayGioKhoiHanh.ngay << "/" << current->data.ngayGioKhoiHanh.thang << "/" << current->data.ngayGioKhoiHanh.nam
+             << " " << current->data.ngayGioKhoiHanh.gio << ":" << current->data.ngayGioKhoiHanh.phut
+             << ", Noi den: " << current->data.sanBayDen
+             << ", Trang thai: " << current->data.trangThai
+             << ", So hieu MB: " << current->data.soHieuMB << endl;
+        current = current->next;
     }
 }
 
 // Hàm đọc dữ liệu từ tệp
 void docDuLieu()
 {
-    ifstream file("data.txt");
+    ifstream file("d:\\Code\\C++\\DSA\\BigAssignment\\output\\data.txt");
     if (file.is_open())
     {
         // Đọc danh sách máy bay
@@ -375,28 +473,24 @@ void docDuLieu()
         // Đọc danh sách chuyến bay
         int soLuongChuyenBay;
         file >> soLuongChuyenBay;
+        cout << "So luong chuyen bay: " << soLuongChuyenBay << endl;
+        dsChuyenBay = NULL;
         for (int i = 0; i < soLuongChuyenBay; ++i)
         {
-            ChuyenBay cb;
-            string ngayGio;
-            file >> cb.maCB >> ngayGio >> cb.sanBayDen >> cb.trangThai >> cb.soHieuMB;
-            // Custom implementation of strptime
-            istringstream ss(ngayGio);
-            ss >> get_time(&cb.ngayGioKhoiHanh, "%a %b %d %H:%M:%S %Y");
-            strptime(ngayGio.c_str(), "%a %b %d %H:%M:%S %Y", &cb.ngayGioKhoiHanh);
+            nodeChuyenBay *newNode = new nodeChuyenBay;
+            file >> newNode->data.maCB >> newNode->data.ngayGioKhoiHanh.ngay >> newNode->data.ngayGioKhoiHanh.thang >> newNode->data.ngayGioKhoiHanh.nam >> newNode->data.ngayGioKhoiHanh.gio >> newNode->data.ngayGioKhoiHanh.phut >> newNode->data.sanBayDen >> newNode->data.trangThai >> newNode->data.soHieuMB;
+
             int soLuongVe;
             file >> soLuongVe;
+            newNode->data.dsVe = NULL;
             for (int j = 0; j < soLuongVe; ++j)
             {
-                Ve ve;
-                file >> ve.soVe >> ve.soCMND;
                 nodeVe *newVe = new nodeVe;
-                newVe->data = ve;
-                newVe->next = cb.dsVe.next;
-                cb.dsVe.next = newVe;
+                file >> newVe->data.soVe >> newVe->data.soCMND;
+                newVe->next = newNode->data.dsVe;
+                newNode->data.dsVe = newVe;
             }
-            nodeChuyenBay *newNode = new nodeChuyenBay;
-            newNode->data = cb;
+
             newNode->next = dsChuyenBay;
             dsChuyenBay = newNode;
         }
@@ -408,126 +502,208 @@ void docDuLieu()
         {
             HanhKhach hk;
             file >> hk.soCMND >> hk.ho >> hk.ten >> hk.phai;
-            danhSachHanhKhach[hk.soCMND] = hk;
+            themHanhKhach(hk);
         }
-
         file.close();
+    }
+}
+
+void inDanhSachHanhKhachAVL(AVLNode *node)
+{
+    if (node == NULL)
+        return;
+
+    inDanhSachHanhKhachAVL(node->left);
+    cout << "So CMND: " << node->data.soCMND
+         << ", Ho ten: " << node->data.ho << " " << node->data.ten
+         << ", Phai: " << node->data.phai << endl;
+    inDanhSachHanhKhachAVL(node->right);
+}
+
+void thongKeSoLuotThucHienChuyenBay()
+{
+    map<string, int> thongKe;
+    nodeChuyenBay *current = dsChuyenBay;
+    while (current != NULL)
+    {
+        thongKe[current->data.soHieuMB]++;
+        current = current->next;
+    }
+
+    cout << "Thong ke so luot thuc hien chuyen bay cua tung may bay:" << endl;
+    for (const auto &entry : thongKe)
+    {
+        cout << "So hieu MB: " << entry.first << ", So luot thuc hien: " << entry.second << endl;
+    }
+}
+
+void inDanhSachVeTrong(string maCB)
+{
+    nodeChuyenBay *current = dsChuyenBay;
+    while (current != NULL)
+    {
+        if (strcmp(current->data.maCB, maCB.c_str()) == 0)
+        {
+            cout << "Danh sach ve con trong cua chuyen bay " << maCB << ":" << endl;
+            nodeVe *currVe = current->data.dsVe;
+            while (currVe != NULL)
+            {
+                if (strlen(currVe->data.soCMND) == 0) // Vé chưa được đặt
+                {
+                    cout << "So ve: " << currVe->data.soVe << endl;
+                }
+                currVe = currVe->next;
+            }
+            return;
+        }
+        current = current->next;
+    }
+    cout << "Khong tim thay chuyen bay voi ma CB: " << maCB << endl;
+}
+
+void inDanhSachChuyenBayTrongNgay(string ngay, string noiDen)
+{
+    cout << "Danh sach chuyen bay trong ngay " << ngay << " den noi " << noiDen << " ma con ve:" << endl;
+    nodeChuyenBay *current = dsChuyenBay;
+    while (current != NULL)
+    {
+
+        if (current->data.sanBayDen == noiDen && current->data.trangThai == 1)
+        {
+            cout << "Ma CB: " << current->data.maCB
+                 << ", Gio khoi hanh: " << current->data.ngayGioKhoiHanh.gio << ":" << current->data.ngayGioKhoiHanh.phut
+                 << ", Ngay khoi hanh: " << current->data.ngayGioKhoiHanh.ngay << "/" << current->data.ngayGioKhoiHanh.thang + 1 << "/" << current->data.ngayGioKhoiHanh.nam + 1900
+                 << ", So hieu MB: " << current->data.soHieuMB << endl;
+        }
+        current = current->next;
     }
 }
 
 // Hàm hiển thị menu
 void hienThiMenu()
 {
+    system("cls");
     cout << "=============================================" << endl;
     cout << "QUAN LY CHUYEN BAY NOI DIA" << endl;
-    cout << "1. Cap nhat danh sach may bay" << endl;
-    cout << "2. Cap nhat chuyen bay" << endl;
-    cout << "3. Dat ve" << endl;
-    cout << "4. Huy ve" << endl;
-    cout << "5. In danh sach hanh khach thuoc chuyen bay" << endl;
-    cout << "6. In danh sach chuyen bay khoi hanh trong ngay" << endl;
-    cout << "7. In danh sach ve con trong cua chuyen bay" << endl;
-    cout << "8. Thong ke so luot thuc hien chuyen bay cua tung may bay" << endl;
-    cout << "9. Luu du lieu" << endl;
-    cout << "10. Doc du lieu" << endl;
+    // a
+    cout << "1. Them may bay" << endl;
+    cout << "2. Xoa may bay" << endl;
+    cout << "3. Hieu chinh may bay" << endl;
+    // b
+    cout << "4. Them chuyen bay" << endl;
+    cout << "5. Hieu chinh ngay gio khoi hanh cua chuyen bay" << endl;
+    cout << "6. Huy chuyen bay" << endl;
+    // c
+    cout << "7. Dat ve" << endl;
+    // d
+    cout << "8. Huy ve" << endl;
+    // e
+    cout << "9. In danh sach hanh khach thuoc chuyen bay" << endl;
+    // f
+    cout << "10. In danh sach may bay trong ngay A den noi X ma con ve" << endl;
+    // g
+    cout << "11. In danh sach ve con trong cua chuyen bay X" << endl;
+    // h
+    cout << "12. Thong ke so chuyen bay cua tung may bay" << endl;
+
+    // additional features
+    cout << "13. In danh sach may bay" << endl;
+    cout << "14. In danh sach chuyen bay" << endl;
+    cout << "15. In danh sach hanh khach" << endl;
+    // cout << "16. Luu du lieu" << endl;
+    // cout << "17. Doc du lieu" << endl;
+
     cout << "0. Thoat" << endl;
     cout << "=============================================" << endl;
     cout << "Nhap lua chon cua ban: ";
 }
 
-// Hàm xử lý lựa chọn của người dùng
 void xuLyLuaChon(int luaChon)
 {
+    system("cls");
     switch (luaChon)
     {
-    case 1:
+    case 1: // Thêm máy bay
     {
-        int subChoice;
-        cout << "1. Them may bay" << endl;
-        cout << "2. Xoa may bay" << endl;
-        cout << "3. Hieu chinh may bay" << endl;
-        cout << "Nhap lua chon cua ban: ";
-        cin >> subChoice;
-        if (subChoice == 1)
-        {
-            MayBay *mb = new MayBay;
-            cout << "Nhap so hieu may bay: ";
-            cin >> mb->soHieuMB;
-            cout << "Nhap loai may bay: ";
-            cin >> mb->loaiMB;
-            cout << "Nhap so cho: ";
-            cin >> mb->soCho;
-            themMayBay(mb);
-        }
-        else if (subChoice == 2)
-        {
-            char soHieuMB[15];
-            cout << "Nhap so hieu may bay can xoa: ";
-            cin >> soHieuMB;
-            xoaMayBay(soHieuMB);
-        }
-        else if (subChoice == 3)
-        {
-            char soHieuMB[15];
-            char loaiMB[40];
-            int soCho;
-            cout << "Nhap so hieu may bay can hieu chinh: ";
-            cin >> soHieuMB;
-            cout << "Nhap loai may bay moi: ";
-            cin >> loaiMB;
-            cout << "Nhap so cho moi: ";
-            cin >> soCho;
-            hieuChinhMayBay(soHieuMB, loaiMB, soCho);
-        }
+        MayBay *mb = new MayBay;
+        cout << "Nhap so hieu may bay: ";
+        cin >> mb->soHieuMB;
+        cout << "Nhap loai may bay: ";
+        cin >> mb->loaiMB;
+        cout << "Nhap so cho: ";
+        cin >> mb->soCho;
+        themMayBay(mb);
+        cout << "Da them may bay thanh cong!" << endl;
+        system("pause");
         break;
     }
-    case 2:
+    case 2: // Xóa máy bay
     {
-        int subChoice;
-        cout << "1. Them chuyen bay" << endl;
-        cout << "2. Hieu chinh ngay gio khoi hanh" << endl;
-        cout << "3. Huy chuyen bay" << endl;
-        cout << "Nhap lua chon cua ban: ";
-        cin >> subChoice;
-        if (subChoice == 1)
-        {
-            ChuyenBay cb;
-            cout << "Nhap ma chuyen bay: ";
-            cin >> cb.maCB;
-            cout << "Nhap ngay gio khoi hanh (vd: Mon Mar 15 14:30:00 2021): ";
-            string ngayGio;
-            cin.ignore();
-            getline(cin, ngayGio);
-            strptime(ngayGio.c_str(), "%a %b %d %H:%M:%S %Y", &cb.ngayGioKhoiHanh);
-            cout << "Nhap san bay den: ";
-            cin >> cb.sanBayDen;
-            cout << "Nhap trang thai (0: huy chuyen, 1: con ve, 2: het ve, 3: hoan tat): ";
-            cin >> cb.trangThai;
-            cout << "Nhap so hieu may bay: ";
-            cin >> cb.soHieuMB;
-            themChuyenBay(cb);
-        }
-        else if (subChoice == 2)
-        {
-            char maCB[15];
-            cout << "Nhap ma chuyen bay can hieu chinh: ";
-            cin >> maCB;
-            cout << "Nhap ngay gio khoi hanh moi (vd: Mon Mar 15 14:30:00 2021): ";
-            string ngayGio;
-            cin.ignore();
-            getline(cin, ngayGio);
-            hieuChinhChuyenBay(maCB, ngayGio.c_str());
-        }
-        else if (subChoice == 3)
-        {
-            char maCB[15];
-            cout << "Nhap ma chuyen bay can huy: ";
-            cin >> maCB;
-            huyChuyenBay(maCB);
-        }
+        char soHieuMB[15];
+        cout << "Nhap so hieu may bay can xoa: ";
+        cin >> soHieuMB;
+        xoaMayBay(soHieuMB);
+        cout << "Da xoa may bay thanh cong!" << endl;
+        system("pause");
         break;
     }
-    case 3:
+    case 3: // Hiệu chỉnh máy bay
+    {
+        char soHieuMB[15], loaiMB[40];
+        int soCho;
+        cout << "Nhap so hieu may bay can hieu chinh: ";
+        cin >> soHieuMB;
+        cout << "Nhap loai may bay moi: ";
+        cin >> loaiMB;
+        cout << "Nhap so cho moi: ";
+        cin >> soCho;
+        hieuChinhMayBay(soHieuMB, loaiMB, soCho);
+        cout << "Da hieu chinh may bay thanh cong!" << endl;
+        system("pause");
+        break;
+    }
+    case 4: // Thêm chuyến bay
+    {
+        ChuyenBay cb;
+        cout << "Nhap ma chuyen bay: ";
+        cin >> cb.maCB;
+        cout << "Nhap ngay gio khoi hanh (dd mm yyyy hh mm): ";
+        cin >> cb.ngayGioKhoiHanh.ngay >> cb.ngayGioKhoiHanh.thang >> cb.ngayGioKhoiHanh.nam >> cb.ngayGioKhoiHanh.gio >> cb.ngayGioKhoiHanh.phut;
+        cout << "Nhap san bay den: ";
+        cin >> cb.sanBayDen;
+        cout << "Nhap trang thai (0: huy, 1: con ve, 2: het ve, 3: hoan tat): ";
+        cin >> cb.trangThai;
+        cout << "Nhap so hieu may bay: ";
+        cin >> cb.soHieuMB;
+        themChuyenBay(cb);
+        cout << "Da them chuyen bay thanh cong!" << endl;
+        system("pause");
+        break;
+    }
+    case 5: // Hiệu chỉnh ngày giờ khởi hành của chuyến bay
+    {
+        char maCB[15];
+        cout << "Nhap ma chuyen bay can hieu chinh: ";
+        cin >> maCB;
+        cout << "Nhap ngay gio khoi hanh moi (dd mm yyyy hh mm): ";
+        ChuyenBay cb;
+        cin >> cb.ngayGioKhoiHanh.ngay >> cb.ngayGioKhoiHanh.thang >> cb.ngayGioKhoiHanh.nam >> cb.ngayGioKhoiHanh.gio >> cb.ngayGioKhoiHanh.phut;
+        hieuChinhChuyenBay(maCB, cb.ngayGioKhoiHanh);
+        cout << "Da hieu chinh ngay gio khoi hanh thanh cong!" << endl;
+        system("pause");
+        break;
+    }
+    case 6: // Hủy chuyến bay
+    {
+        char maCB[15];
+        cout << "Nhap ma chuyen bay can huy: ";
+        cin >> maCB;
+        huyChuyenBay(maCB);
+        cout << "Da huy chuyen bay thanh cong!" << endl;
+        system("pause");
+        break;
+    }
+    case 7: // Đặt vé
     {
         string maCB;
         Ve ve;
@@ -535,12 +711,14 @@ void xuLyLuaChon(int luaChon)
         cin >> maCB;
         cout << "Nhap so ve: ";
         cin >> ve.soVe;
-        cout << "Nhap so CMND: ";
+        cout << "Nhap so CMND cua hanh khach: ";
         cin >> ve.soCMND;
         datVe(maCB, ve);
+        cout << "Da dat ve thanh cong!" << endl;
+        system("pause");
         break;
     }
-    case 4:
+    case 8: // Hủy vé
     {
         string maCB;
         int soVe;
@@ -549,69 +727,106 @@ void xuLyLuaChon(int luaChon)
         cout << "Nhap so ve can huy: ";
         cin >> soVe;
         huyVe(maCB, soVe);
+        cout << "Da huy ve thanh cong!" << endl;
+        system("pause");
         break;
     }
-    case 5:
+    case 9: // In danh sách hành khách thuộc chuyến bay
     {
         string maCB;
         cout << "Nhap ma chuyen bay: ";
         cin >> maCB;
         inDanhSachHanhKhach(maCB);
+        system("pause");
         break;
     }
-    case 6:
+    case 10: // In danh sách chuyến bay trong ngày đến nơi X mà còn vé
     {
         string ngay, noiDen;
-        cout << "Nhap ngay (vd: 15/03/2021): ";
+        cout << "Nhap ngay (dd/mm/yyyy): ";
         cin >> ngay;
         cout << "Nhap noi den: ";
         cin >> noiDen;
         inDanhSachChuyenBayTrongNgay(ngay, noiDen);
+        system("pause");
         break;
     }
-    case 7:
+    case 11: // In danh sách vé còn trống của chuyến bay X
     {
-        string maCB;
-        cout << "Nhap ma chuyen bay: ";
-        cin >> maCB;
-        inDanhSachVeTrong(maCB);
+        string ngay, noiDen;
+        cout << "Nhap ngay (dd/mm/yyyy): ";
+        cin >> ngay;
+        cout << "Nhap noi den: ";
+        cin >> noiDen;
+        inDanhSachChuyenBayTrongNgay(ngay, noiDen);
+        system("pause");
         break;
     }
-    case 8:
+
+    case 12: // Thống kê số chuyến bay của từng máy bay
     {
         thongKeSoLuotThucHienChuyenBay();
+        system("pause");
         break;
     }
-    case 9:
+    case 13: // In danh sách máy bay
     {
+        cout << "Danh sach may bay:" << endl;
+        for (int i = 0; i < dsMayBay.soluongMayBay; ++i)
+        {
+            cout << "So hieu: " << dsMayBay.nodes[i]->soHieuMB
+                 << ", Loai: " << dsMayBay.nodes[i]->loaiMB
+                 << ", So cho: " << dsMayBay.nodes[i]->soCho << endl;
+        }
+        system("pause");
+        break;
+    }
+    case 14: // In danh sách chuyến bay
+    {
+        cout << "Danh sach chuyen bay:" << endl;
+        nodeChuyenBay *current = dsChuyenBay;
+        while (current != NULL)
+        {
+            cout << "Ma CB: " << current->data.maCB
+                 << ", Noi den: " << current->data.sanBayDen
+                 << ", Trang thai: " << current->data.trangThai
+                 << ", So hieu MB: " << current->data.soHieuMB << endl;
+            current = current->next;
+        }
+        system("pause");
+        break;
+    }
+    case 15: // In danh sách hành khách
+    {
+        cout << "Danh sach hanh khach:" << endl;
+        inDanhSachHanhKhachAVL(rootHanhKhach);
+        system("pause");
+        break;
+    }
+
+    case 0: // Thoát chương trình
+        cout << "Thoat chuong trinh. Tam biet!" << endl;
         luuDuLieu();
-        break;
-    }
-    case 10:
-    {
-        docDuLieu();
-        break;
-    }
-    case 0:
-    {
-        cout << "Thoat chuong trinh." << endl;
         exit(0);
-    }
     default:
-        cout << "Lua chon khong hop le. Vui long chon lai." << endl;
-        break;
+        cout << "Lua chon khong hop le. Vui long thu lai!" << endl;
     }
 }
 
 int main()
 {
+    cout << "Chuong trinh quan ly chuyen bay noi dia" << endl;
     docDuLieu();
-    int luaChon;
-    do
+    cout << "Da doc du lieu tu tep thanh cong!" << endl;
+    kiemTra();
+    cout << "Danh sach chuyen bay da duoc kiem tra!" << endl;
+    system("pause");
+    while (true)
     {
         hienThiMenu();
+        int luaChon;
         cin >> luaChon;
         xuLyLuaChon(luaChon);
-    } while (luaChon != 0);
+    }
     return 0;
 }
